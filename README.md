@@ -27,8 +27,7 @@ That project gave me a great starting point, but I wanted additional workflow fe
 
 ## Why This Repo Hits Hard
 
- preview
-<img src="https://github.com/user-attachments/assets/0c1c1673-8e0d-424a-8227-c4c48e075e0d" width="50%">
+<img src="https://github.com/user-attachments/assets/0c1c1673-8e0d-424a-8227-c4c48e075e0d" width="75%">
 
 - Imports `.log` files from `logs/` and generates `wifi_map.html`.
 - Groups networks by point, adds status colors, crack/open/secured split, and fast SSID search.
