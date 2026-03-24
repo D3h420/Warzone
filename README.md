@@ -16,7 +16,7 @@
 This script was created because I did not want to publish Wi-Fi data from my own neighborhood to public internet services.
 
 It was inspired by the Pygle utility from Evil-M5Project:
-[https://github.com/7h30th3r0n3/Evil-M5Project/tree/main/utilities/Pygle](https://github.com/7h30th3r0n3/Evil-M5Project/tree/main/utilities/Pygle)
+[Pygle by 7h30th3r0n3](https://github.com/7h30th3r0n3/Evil-M5Project/tree/main/utilities/Pygle)
 
 That project gave me a great starting point, but I wanted additional workflow features such as:
 
