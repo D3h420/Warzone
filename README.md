@@ -1,4 +1,5 @@
 # Warzone - offline Wi-Fi Map
+<img width="1536" height="1024" alt="warzone" src="https://github.com/user-attachments/assets/930eec6d-7f70-4d32-b4de-e0a9093b6541" />
 
 <p align="center">
   Build a clean, high-contrast Wi-Fi intelligence map from raw Wigle logs.
