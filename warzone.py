@@ -368,6 +368,52 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
         line-height: 1.3;
         color: #d6def0;
       }}
+      .warzone-filters {{
+        margin-top: 9px;
+        border-top: 1px solid rgba(149, 248, 255, 0.2);
+        padding-top: 8px;
+      }}
+      .warzone-filter-row {{
+        display: flex;
+        gap: 6px;
+      }}
+      .warzone-filter-btn {{
+        flex: 1;
+        border-radius: 8px;
+        border: 1px solid rgba(125, 249, 255, 0.32);
+        background: rgba(9, 30, 49, 0.88);
+        color: #d9ecff;
+        font-size: 12px;
+        font-weight: 600;
+        padding: 7px 8px;
+        cursor: pointer;
+        transition: filter 0.18s ease, transform 0.18s ease;
+      }}
+      .warzone-filter-btn:hover {{
+        filter: brightness(1.08);
+      }}
+      .warzone-filter-btn:active {{
+        transform: translateY(1px);
+      }}
+      .warzone-filter-btn.is-active {{
+        color: #0b1d2d;
+      }}
+      .warzone-filter-btn--cracked.is-active {{
+        border-color: #8defff;
+        background: linear-gradient(165deg, #8befff, #42daff);
+        box-shadow: 0 0 10px rgba(79, 232, 255, 0.32);
+      }}
+      .warzone-filter-btn--open.is-active {{
+        border-color: #95ffce;
+        background: linear-gradient(165deg, #8dffc8, #3ee58f);
+        box-shadow: 0 0 10px rgba(62, 229, 143, 0.28);
+      }}
+      .warzone-filter-status {{
+        margin-top: 6px;
+        min-height: 1.2em;
+        font-size: 12px;
+        color: #8fa6c9;
+      }}
       .warzone-search {{
         margin-top: 9px;
         border-top: 1px solid rgba(149, 248, 255, 0.18);
@@ -431,6 +477,9 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
       .warzone-point-wrapper {{
         background: transparent !important;
         border: 0 !important;
+      }}
+      .warzone-marker {{
+        transition: opacity 0.16s ease;
       }}
       .warzone-point {{
         position: relative;
@@ -507,6 +556,14 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
         <div><span class="dot" style="background:#ff4a4a;"></span> Secured: {secured_networks}</div>
         <div><span class="dot" style="background:#4fe8ff;"></span> Cracked: {cracked_networks} (🔓)</div>
       </div>
+      <div class="warzone-filters">
+        <label class="warzone-search-label">Map Filters</label>
+        <div class="warzone-filter-row">
+          <button id="warzone-filter-cracked" class="warzone-filter-btn warzone-filter-btn--cracked" type="button" aria-pressed="false">Cracked</button>
+          <button id="warzone-filter-open" class="warzone-filter-btn warzone-filter-btn--open" type="button" aria-pressed="false">Open</button>
+        </div>
+        <div id="warzone-filter-status" class="warzone-filter-status">Filter: all markers</div>
+      </div>
       <div class="warzone-search">
         <label class="warzone-search-label" for="warzone-search-input">Find Network (SSID)</label>
         <div class="warzone-search-row">
@@ -524,14 +581,72 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
         const input = document.getElementById("warzone-search-input");
         const button = document.getElementById("warzone-search-btn");
         const status = document.getElementById("warzone-search-status");
-        if (!input || !button || !status) {{
+        const crackedFilterButton = document.getElementById("warzone-filter-cracked");
+        const openFilterButton = document.getElementById("warzone-filter-open");
+        const filterStatus = document.getElementById("warzone-filter-status");
+        if (!input || !button || !status || !crackedFilterButton || !openFilterButton || !filterStatus) {{
           return;
         }}
+        const mapFilters = {{ cracked: false, open: false }};
 
         const searchByName = new Map();
         for (const item of SEARCH_DATA) {{
           searchByName.set(item.ssid_norm, item);
         }}
+
+        const markerPassesFilters = (markerEl) => {{
+          if (!mapFilters.cracked && !mapFilters.open) {{
+            return true;
+          }}
+          const hasCracked = markerEl.classList.contains("warzone-marker--has-cracked");
+          const isAllOpen = markerEl.classList.contains("warzone-marker--all-open");
+          if (mapFilters.cracked && mapFilters.open) {{
+            return hasCracked || isAllOpen;
+          }}
+          if (mapFilters.cracked) {{
+            return hasCracked;
+          }}
+          return isAllOpen;
+        }};
+
+        const updateFilterButtons = () => {{
+          crackedFilterButton.classList.toggle("is-active", mapFilters.cracked);
+          crackedFilterButton.setAttribute("aria-pressed", mapFilters.cracked ? "true" : "false");
+          openFilterButton.classList.toggle("is-active", mapFilters.open);
+          openFilterButton.setAttribute("aria-pressed", mapFilters.open ? "true" : "false");
+        }};
+
+        const applyMarkerFilters = () => {{
+          const markerElements = document.querySelectorAll(".warzone-marker");
+          let totalMarkers = 0;
+          let visibleMarkers = 0;
+          markerElements.forEach((markerEl) => {{
+            totalMarkers += 1;
+            const shouldShow = markerPassesFilters(markerEl);
+            markerEl.style.opacity = shouldShow ? "1" : "0";
+            markerEl.style.visibility = shouldShow ? "visible" : "hidden";
+            markerEl.style.pointerEvents = shouldShow ? "" : "none";
+            if (shouldShow) {{
+              visibleMarkers += 1;
+            }}
+          }});
+
+          let filterLabel = "all markers";
+          if (mapFilters.cracked && mapFilters.open) {{
+            filterLabel = "cracked or open";
+          }} else if (mapFilters.cracked) {{
+            filterLabel = "cracked only";
+          }} else if (mapFilters.open) {{
+            filterLabel = "open only";
+          }}
+          filterStatus.textContent = `Filter: ${{filterLabel}} · showing ${{visibleMarkers}}/${{totalMarkers}} points`;
+        }};
+
+        const toggleFilter = (kind) => {{
+          mapFilters[kind] = !mapFilters[kind];
+          updateFilterButtons();
+          applyMarkerFilters();
+        }};
 
         const findEntry = (query) => {{
           const normalized = query.trim().toLowerCase();
@@ -586,6 +701,9 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
             return;
           }}
           input.dataset.bound = "1";
+          updateFilterButtons();
+          crackedFilterButton.addEventListener("click", () => toggleFilter("cracked"));
+          openFilterButton.addEventListener("click", () => toggleFilter("open"));
           button.addEventListener("click", () => runSearch(mapObj));
           input.addEventListener("change", () => runSearch(mapObj));
           input.addEventListener("keydown", (event) => {{
@@ -594,6 +712,9 @@ def add_dashboard(map_object: object, networks_df: object, map_name: str) -> Non
               runSearch(mapObj);
             }}
           }});
+          mapObj.on("zoomend", applyMarkerFilters);
+          mapObj.on("moveend", applyMarkerFilters);
+          window.setTimeout(applyMarkerFilters, 120);
         }};
 
         bind();
@@ -706,6 +827,13 @@ def build_map(networks_df: object) -> object:
             f"<span class='warzone-point-count' style='font-size:{font_size}px;'>{network_count}</span>"
             f"{cracked_badge}</div>"
         )
+        wrapper_classes = ["warzone-point-wrapper", "warzone-marker"]
+        if open_count > 0:
+            wrapper_classes.append("warzone-marker--has-open")
+        if open_count == network_count:
+            wrapper_classes.append("warzone-marker--all-open")
+        if cracked_count > 0:
+            wrapper_classes.append("warzone-marker--has-cracked")
         tooltip = folium.Tooltip(
             f"Networks: {network_count} | Open: {open_count} | Cracked: {cracked_count}",
             sticky=True,
@@ -717,7 +845,7 @@ def build_map(networks_df: object) -> object:
                 html=marker_html,
                 icon_size=(marker_size, marker_size),
                 icon_anchor=(marker_size // 2, marker_size // 2),
-                class_name="warzone-point-wrapper",
+                class_name=" ".join(wrapper_classes),
             ),
             z_index_offset=450 + network_count,
             popup=folium.Popup(popup_content, max_width=460),
