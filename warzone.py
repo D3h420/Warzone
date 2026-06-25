@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import html
 import importlib
 import json
@@ -28,8 +29,39 @@ COLUMNS = [
     "Type",
 ]
 
-# Fields after AuthMode are stable in Wigle logs, while SSID can contain commas.
-TAIL_FIELDS_COUNT = 8
+WIGLE_COLUMNS = [
+    "MAC",
+    "SSID",
+    "AuthMode",
+    "FirstSeen",
+    "Channel",
+    "Frequency",
+    "RSSI",
+    "CurrentLatitude",
+    "CurrentLongitude",
+    "AltitudeMeters",
+    "AccuracyMeters",
+    "RCOIs",
+    "MfgrId",
+    "Type",
+]
+
+FIELD_ALIASES = {
+    "MAC": {"mac", "bssid"},
+    "SSID": {"ssid", "essid", "networkname", "name"},
+    "AuthMode": {"authmode", "auth", "privacy", "encryption", "security"},
+    "FirstSeen": {"firstseen", "lastseen", "time", "timestamp", "date"},
+    "Channel": {"channel", "chan"},
+    "RSSI": {"rssi", "signal", "level", "power"},
+    "CurrentLatitude": {"currentlatitude", "latitude", "lat", "gpslat"},
+    "CurrentLongitude": {"currentlongitude", "longitude", "lon", "lng", "gpslon"},
+    "AltitudeMeters": {"altitudemeters", "altitude", "alt", "gpsalt"},
+    "AccuracyMeters": {"accuracymeters", "accuracy", "gpsaccuracy", "hdop"},
+    "Type": {"type", "networktype"},
+}
+
+OLD_WIGLE_COLUMNS = [column for column in WIGLE_COLUMNS if column not in {"Frequency", "RCOIs", "MfgrId"}]
+HEADER_LENGTH_KEY = "__header_length__"
 POINT_COORD_DECIMALS = 6
 
 folium = None
@@ -96,41 +128,112 @@ def read_text_with_fallback(path: Path) -> str:
     return data.decode("utf-8", errors="replace")
 
 
-def parse_wigle_line(line: str) -> dict[str, str] | None:
-    parts = [fragment.strip() for fragment in line.strip().split(",")]
-    if len(parts) < len(COLUMNS):
+def normalize_header_name(value: str) -> str:
+    return "".join(char for char in value.strip().casefold() if char.isalnum())
+
+
+def is_header_row(row: list[str]) -> bool:
+    normalized = {normalize_header_name(value) for value in row}
+    return "mac" in normalized and (
+        "ssid" in normalized
+        or "currentlatitude" in normalized
+        or "latitude" in normalized
+        or "lat" in normalized
+    )
+
+
+def build_header_map(header: list[str]) -> dict[str, int]:
+    normalized_header = [normalize_header_name(value) for value in header]
+    header_map: dict[str, int] = {HEADER_LENGTH_KEY: len(header)}
+    for target_column, aliases in FIELD_ALIASES.items():
+        for index, column_name in enumerate(normalized_header):
+            if column_name in aliases:
+                header_map[target_column] = index
+                break
+    return header_map
+
+
+def value_at(row: list[str], index: int | None) -> str:
+    if index is None or index >= len(row):
+        return ""
+    return row[index].strip()
+
+
+def row_from_header_map(row: list[str], header_map: dict[str, int]) -> dict[str, str] | None:
+    if not header_map:
+        return None
+    if len(row) != header_map.get(HEADER_LENGTH_KEY):
         return None
 
-    tail = parts[-TAIL_FIELDS_COUNT:]
-    left = parts[:-TAIL_FIELDS_COUNT]
-    if len(left) < 3:
+    parsed = {column: value_at(row, header_map.get(column)) for column in COLUMNS}
+    if not parsed["MAC"] or not parsed["CurrentLatitude"] or not parsed["CurrentLongitude"]:
+        return None
+    if not parsed["Type"]:
+        parsed["Type"] = "WIFI"
+    return parsed
+
+
+def row_from_known_wigle_columns(row: list[str], columns: list[str]) -> dict[str, str] | None:
+    if len(row) < len(columns):
         return None
 
-    return {
-        "MAC": left[0],
-        "SSID": ",".join(left[1:-1]).strip(),
-        "AuthMode": left[-1],
-        "FirstSeen": tail[0],
-        "Channel": tail[1],
-        "RSSI": tail[2],
-        "CurrentLatitude": tail[3],
-        "CurrentLongitude": tail[4],
-        "AltitudeMeters": tail[5],
-        "AccuracyMeters": tail[6],
-        "Type": tail[7],
-    }
+    mac_index = columns.index("MAC")
+    ssid_index = columns.index("SSID")
+    auth_index = columns.index("AuthMode")
+    trailing_columns = columns[auth_index:]
+    trailing_count = len(trailing_columns)
+    if len(row) < mac_index + 1 + trailing_count:
+        return None
+
+    trailing_values = [value.strip() for value in row[-trailing_count:]]
+    ssid_values = row[ssid_index : len(row) - trailing_count]
+    if not ssid_values:
+        return None
+
+    parsed = {column: "" for column in COLUMNS}
+    parsed["MAC"] = row[mac_index].strip()
+    parsed["SSID"] = ",".join(value.strip() for value in ssid_values).strip()
+    for column, value in zip(trailing_columns, trailing_values):
+        if column in parsed:
+            parsed[column] = value
+
+    if not parsed["MAC"] or not parsed["CurrentLatitude"] or not parsed["CurrentLongitude"]:
+        return None
+    if not parsed["Type"]:
+        parsed["Type"] = "WIFI"
+    return parsed
+
+
+def parse_wigle_row(row: list[str], header_map: dict[str, int] | None = None) -> dict[str, str] | None:
+    row = [fragment.strip() for fragment in row]
+    if not row or not any(row):
+        return None
+
+    if header_map:
+        parsed = row_from_header_map(row, header_map)
+        if parsed is not None:
+            return parsed
+
+    for columns in (WIGLE_COLUMNS, OLD_WIGLE_COLUMNS):
+        parsed = row_from_known_wigle_columns(row, columns)
+        if parsed is not None:
+            return parsed
+    return None
 
 
 def parse_log_file(path: Path) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
-    lines = read_text_with_fallback(path).splitlines()
-    if len(lines) < 3:
-        return rows
+    csv_rows = csv.reader(read_text_with_fallback(path).splitlines())
+    header_map: dict[str, int] | None = None
 
-    for line in lines[2:]:
-        if not line.strip():
+    for row in csv_rows:
+        if not row or not any(value.strip() for value in row):
             continue
-        parsed = parse_wigle_line(line)
+        if is_header_row(row):
+            header_map = build_header_map(row)
+            continue
+
+        parsed = parse_wigle_row(row, header_map)
         if parsed is None:
             continue
         parsed["SourceFile"] = path.name
